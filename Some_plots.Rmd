@@ -1,0 +1,1295 @@
+---
+title: "Some analysis"
+author: "Miguel Rodriguez-Galindo"
+date: "October 11, 2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Compute mutation rates
+
+```{r}
+generations <- 2*11237
+exonic_nts <- 13632264
+intronic_nts <- 2001*95633 - exonic_nts
+exonic_rate <- 4669/(exonic_nts*generations)
+exonic_rate
+intronic_rate <- 46111/(intronic_nts*generations)
+intronic_rate
+```
+
+# Compute mutation rates (Goldmann 2018)
+
+```{r}
+generations <- 2*1291
+exonic_nts <- 13632264
+intronic_nts <- 2001*95633 - exonic_nts
+exonic_rate <- 485/(exonic_nts*generations)
+exonic_rate
+intronic_rate <- 5113/(intronic_nts*generations)
+intronic_rate
+```
+
+# 9-way spectrum plot.
+
+```{r}
+data_raw <- read.table("results/germinal_class.bed", header = TRUE, sep="\t")
+
+simple_freqs <- as.data.frame(table(data_raw$sub))
+total <- sum(simple_freqs$Freq)
+simple_freqs$prop <- simple_freqs$Freq/total
+
+site_freqs <- as.data.frame(table(data_raw$sub, data_raw$site))
+site_freqs <- site_freqs[which(site_freqs$Freq != 0), ]
+total <- sum(site_freqs$Freq)
+site_freqs$prop <- site_freqs$Freq/total
+
+meh <- as.data.frame(table(data_raw$sample,data_raw$sub,data_raw$site))
+meh <- meh[which(meh$Freq != 0), ]
+colnames(meh) <- c('sample', 'mut', 'site', 'count')
+
+rel_freqs <- read.table("data/CpGmer.txt", header = FALSE, sep="\t")
+colnames(rel_freqs) <- c('nt', 'count')
+A_Tfreq <- sum(rel_freqs[which((rel_freqs$nt == 'T') | (rel_freqs$nt == 'A')), ]$count)
+CpGfreq <- sum(rel_freqs[which((rel_freqs$nt == 'CpG') | (rel_freqs$nt == 'GpC')), ]$count)
+nonCpGfreq <- sum(rel_freqs[which((rel_freqs$nt == 'nonCpG') | (rel_freqs$nt == 'nonGpC')), ]$count)
+total <- sum(as.numeric(rel_freqs$count))
+A_Tfreq = A_Tfreq/total
+CpGfreq = CpGfreq/total
+nonCpGfreq = nonCpGfreq/total
+
+meh$corrected <- ifelse( ((meh$mut == 'T>A') | (meh$mut == 'T>C') | (meh$mut == 'T>G')), meh$count/A_Tfreq,
+                       ifelse( (((meh$mut == 'C>A') | (meh$mut == 'C>G') | (meh$mut == 'C>T')) & (meh$site == 'CpG')), meh$count/CpGfreq,
+                           ifelse( (((meh$mut == 'C>A') | (meh$mut == 'C>G') | (meh$mut == 'C>T')) & (meh$site == 'nonCpG')), meh$count/nonCpGfreq, NA)))
+
+meh$freq <- 0.0
+meh$freq <- apply(meh, 1, FUN = function (x) {
+  as.integer(x["corrected"]) / sum(meh[meh$sample %in% x["sample"],"corrected"])
+})
+meh$se <- apply(meh, 1, FUN = function (x) {
+  sqrt(as.numeric(x["freq"])*(1-as.numeric(x["freq"]))/ sum(meh[meh$sample %in% x["sample"],"corrected"]))
+})
+```
+
+```{r}
+library(ggplot2)
+
+tiff('figures/Spectra1.tiff', units="in", width=7, height=4, res=300, compression = 'lzw')
+studies = c("GoNL (n=11,016)", "Sasani (n=27,454)", "Goldmann 2016 (n=35,793)", "Goldmann 2018 (n=73,755)", "Yuen (n=117,739)", "Halldorsson (n=180,151)", "An (n=233,639)")
+studies2 = c("An (n=233,639)", "Goldmann 2016 (n=35,793)","Goldmann 2018 (n=73,755)", "GoNL (n=11,016)", "Halldorsson (n=180,151)", "Sasani (n=27,454)" , "Yuen (n=117,739)")
+levels(meh$sample)<-studies2
+meh$sample <- factor(meh$sample, levels = studies)
+
+plot <- ggplot(meh, aes(x = mut, y = freq, fill = sample)) + geom_bar(stat="identity", position = "dodge") + facet_grid(site~., scales="free_y") + theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.title = element_blank())
+
+plot + geom_errorbar(aes(ymin=freq-2.57*se, ymax=freq+2.57*se), size=0.5, width=.25, position=position_dodge(.9)) + ylab("Proportion") + xlab("Class")
+dev.off()
+```
+
+# Correlations computing signatures.
+
+## Direct 3-mer signature estimation vs decomposition 3-mer signature estimation
+
+```{r}
+library(Rarity)
+#Load file
+data_raw <- read.table("results/3mer_signatures_DNM_new.txt", header = TRUE, sep="\t")
+colnames(data_raw) <- c("Mut","Direct_estimation")
+
+data_raw2 <- read.table("results/3mer_DNM_signatures_decomp.txt", header = TRUE, sep="\t")
+colnames(data_raw2) <- c("Mut","Decomposition_estimation")
+
+data_merge <- merge(data_raw, data_raw2, by = "Mut")
+
+# Not normally distributed
+shapiro.test(data_merge$Direct_estimation)
+
+tiff('figures/3mer_correl_pearson_directVSdecomp.tiff', units="in", width=7, height=4, res=300, compression = 'lzw')
+corPlot(data_merge[,2:ncol(data_merge)], method = "pearson")
+dev.off()
+```
+
+```{r}
+library(ggplot2)
+
+p1 <- ggplot(data_merge, aes(x = Direct_estimation, y = Decomposition_estimation)) + geom_point() + scale_x_log10() + scale_y_log10() + geom_smooth(method=lm)  + geom_abline(intercept = 0, slope = 1, colour = "red") +
+labs(title = "3-mer probabilities Direct vs Decomposition method", y = "Probability from decomposition", x= "Probability directly estimated") + theme(text = element_text(size=12))
+```
+
+
+## Direct 5-mer signature estimation vs decomposition 5-mer signature estimation
+
+```{r}
+library(Rarity)
+#Load file
+data_raw <- read.table("results/5mer_signatures_DNM_new.txt", header = TRUE, sep="\t")
+colnames(data_raw) <- c("Mut","Direct_estimation")
+
+data_raw2 <- read.table("results/5mer_DNM_signatures_decomp.txt", header = TRUE, sep="\t")
+colnames(data_raw2) <- c("Mut","Decomposition_estimation")
+
+data_merge <- merge(data_raw, data_raw2, by = "Mut")
+
+# Not normally distributed
+shapiro.test(data_merge$Direct_estimation)
+
+tiff('5mer_correl_pearson_directVSdecomp.tiff', units="in", width=7, height=4, res=300, compression = 'lzw')
+corPlot(data_merge[,2:ncol(data_merge)], method = "pearson")
+dev.off()
+```
+
+
+```{r}
+library(ggplot2)
+p2 <- ggplot(data_merge, aes(x = Direct_estimation, y = Decomposition_estimation)) + geom_point() + scale_x_log10() + scale_y_log10() + geom_smooth(method=lm)  + geom_abline(intercept = 0, slope = 1, colour = "red") +
+labs(title = "5-mer probabilities Direct vs Decomposition method", y = "Probability from decomposition", x= "Probability directly estimated") + theme(text = element_text(size=12))
+```
+
+## Direct 7-mer signature estimation vs decomposition 7-mer signature estimation
+
+```{r}
+library(Rarity)
+#Load file
+data_raw <- read.table("results/7mer_signatures_DNM_new.txt", header = TRUE, sep="\t")
+colnames(data_raw) <- c("Mut","Direct_estimation")
+
+data_raw2 <- read.table("results/7mer_DNM_signatures_decomp.txt", header = TRUE, sep="\t")
+colnames(data_raw2) <- c("Mut","Decomposition_estimation")
+
+data_merge <- merge(data_raw, data_raw2, by = "Mut")
+
+# Not normally distributed
+#shapiro.test(data_merge$Direct_estimation)
+
+tiff('7mer_correl_spearman_directVSdecomp.tiff', units="in", width=7, height=4, res=300, compression = 'lzw')
+corPlot(data_merge[,2:ncol(data_merge)], method = "spearman")
+dev.off()
+```
+
+
+```{r}
+library(ggplot2)
+p3 <- ggplot(data_merge, aes(x = Direct_estimation, y = Decomposition_estimation)) + geom_point() + scale_x_log10() + scale_y_log10() + geom_smooth(method=lm)  + geom_abline(intercept = 0, slope = 1, colour = "red") +
+labs(title = "7-mer probabilities Direct vs Decomposition method", y = "Probability from decomposition", x= "Probability directly estimated") + theme(text = element_text(size=12))
+```
+
+```{r}
+library(ggpubr)
+tiff('correl_directVSdecomp.tiff', units="in", width=7, height=12, res=300, compression = 'lzw')
+ggarrange(p1, p2, p3, ncol = 1, nrow = 3)
+dev.off()
+```
+
+# Extended sequence context dependency analysis.
+
+```{r}
+library(ggplot2) # Load the package
+library(tidyr)
+library(scales)
+```
+
+```{r}
+data_raw <- read.csv(file="results/frequencies_plot_new.tsv", header = TRUE, sep="\t")
+
+freqs_raw <- read.csv(file="data/1mer.txt", header = FALSE, sep="\t", col.names = c('base', 'count'))
+freqs_raw['proportion'] <- lapply( freqs_raw['count'], function(x) x/sum(x, na.rm=TRUE) )
+```
+
+```{r}
+for (n in 1:21){
+new_col_name <- as.character(paste(n-11))
+data_raw[[new_col_name]] <- lapply(data_raw$kmer, function(x) {substring(x, n, n)})
+}
+```
+
+```{r}
+data_clean <- subset(data_raw, select = c("mut","-10","-9","-8","-7","-6","-5","-4","-3","-2","-1","0","1","2","3","4","5","6","7","8","9","10"))
+gathercols <- c("-10","-9","-8","-7","-6","-5","-4","-3","-2","-1","0","1","2","3","4","5","6","7","8","9","10")
+keycol <- "position"
+valuecol <- "nucleotide"
+data_long <- gather_(data_clean, keycol, valuecol, gathercols)
+```
+
+```{r}
+tiff('figures/Plot1.tiff', units="in", width=7, height=4, res=300, compression = 'lzw')
+data_CtoT <- data_long[data_long$mut == 'C>T',]
+data_CtoT <- subset(data_CtoT, select = c("position", "nucleotide"))
+data_CtoT$nucleotide <- unlist(data_CtoT$nucleotide)
+countdf <- as.data.frame(table(data_CtoT))
+countdf <- countdf[countdf$position != "0", ]
+countdf <- countdf[countdf$nucleotide != "N", ]
+countdf <- rbind(countdf, c("0", NA ,1000))
+countdf$Freq <- as.numeric(countdf$Freq)
+countdf$position <- factor(countdf$position, levels = c("-10","-9","-8","-7","-6","-5","-4","-3","-2","-1","0","1","2","3","4","5","6","7","8","9","10"))
+
+ggplot(countdf, aes(x = position, y = Freq, fill = nucleotide)) + geom_bar(position = "fill",stat = "identity") + geom_hline(yintercept=freqs_raw[4,'proportion'],linetype='dashed') + geom_hline(yintercept=freqs_raw[4,'proportion']+freqs_raw[3,'proportion'],linetype='dashed') + geom_hline(yintercept=freqs_raw[4,'proportion']+freqs_raw[3,'proportion']+freqs_raw[2,'proportion'],linetype='dashed') + scale_y_continuous(labels = percent_format()) + labs(title = "C>T (G>A)", y = "% of bases", x= "Base position") + theme(text = element_text(size=12), axis.text.x = element_text(vjust = 5), plot.title = element_text(hjust = 0.5, vjust= -2), legend.text=element_text(size=11), legend.box.margin = margin(6, 6, 6, 6),legend.key.size = unit(0.5, "cm"),legend.title=element_blank()) + theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.ticks.x=element_blank())
+
+dev.off()
+```
+
+```{r}
+tiff('figures/Plot2.tiff', units="in", width=7, height=4, res=300, compression = 'lzw')
+data_CtoT <- data_long[data_long$mut == 'C>G',]
+data_CtoT <- subset(data_CtoT, select = c("position", "nucleotide"))
+data_CtoT$nucleotide <- unlist(data_CtoT$nucleotide)
+countdf <- as.data.frame(table(data_CtoT))
+countdf <- countdf[countdf$position != "0", ]
+countdf <- countdf[countdf$nucleotide != "N", ]
+countdf <- rbind(countdf, c("0", NA ,1000))
+countdf$Freq <- as.numeric(countdf$Freq)
+countdf$position <- factor(countdf$position, levels = c("-10","-9","-8","-7","-6","-5","-4","-3","-2","-1","0","1","2","3","4","5","6","7","8","9","10"))
+
+ggplot(countdf, aes(x = position, y = Freq, fill = nucleotide)) + geom_bar(position = "fill",stat = "identity") + geom_hline(yintercept=freqs_raw[4,'proportion'],linetype='dashed') + geom_hline(yintercept=freqs_raw[4,'proportion']+freqs_raw[3,'proportion'],linetype='dashed') + geom_hline(yintercept=freqs_raw[4,'proportion']+freqs_raw[3,'proportion']+freqs_raw[2,'proportion'],linetype='dashed') + scale_y_continuous(labels = percent_format()) + labs(title = "C>G (G>C)", y = "% of bases", x= "Base position") + theme(text = element_text(size=12), axis.text.x = element_text(vjust = 5), plot.title = element_text(hjust = 0.5, vjust= -2), legend.text=element_text(size=11), legend.box.margin = margin(6, 6, 6, 6),legend.key.size = unit(0.5, "cm"),legend.title=element_blank()) + theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.ticks.x=element_blank())
+
+dev.off()
+```
+
+```{r}
+tiff('figures/Plot3.tiff', units="in", width=7, height=4, res=300, compression = 'lzw')
+data_CtoT <- data_long[data_long$mut == 'C>A',]
+data_CtoT <- subset(data_CtoT, select = c("position", "nucleotide"))
+data_CtoT$nucleotide <- unlist(data_CtoT$nucleotide)
+countdf <- as.data.frame(table(data_CtoT))
+countdf <- countdf[countdf$position != "0", ]
+countdf <- countdf[countdf$nucleotide != "N", ]
+countdf <- rbind(countdf, c("0", NA ,1000))
+countdf$Freq <- as.numeric(countdf$Freq)
+countdf$position <- factor(countdf$position, levels = c("-10","-9","-8","-7","-6","-5","-4","-3","-2","-1","0","1","2","3","4","5","6","7","8","9","10"))
+
+ggplot(countdf, aes(x = position, y = Freq, fill = nucleotide)) + geom_bar(position = "fill",stat = "identity") + scale_y_continuous(labels = percent_format()) + labs(title = "C>A (G>T)", y = "% of bases", x= "Base position") + theme(text = element_text(size=12), axis.text.x = element_text(vjust = 5), plot.title = element_text(hjust = 0.5, vjust= -2), legend.text=element_text(size=11), legend.box.margin = margin(6, 6, 6, 6),legend.key.size = unit(0.5, "cm"),legend.title=element_blank()) + theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.ticks.x=element_blank())
+
+dev.off()
+```
+
+```{r}
+tiff('figures/Plot4.tiff', units="in", width=7, height=4, res=300, compression = 'lzw')
+data_CtoT <- data_long[data_long$mut == 'T>C',]
+data_CtoT <- subset(data_CtoT, select = c("position", "nucleotide"))
+data_CtoT$nucleotide <- unlist(data_CtoT$nucleotide)
+countdf <- as.data.frame(table(data_CtoT))
+countdf <- countdf[countdf$position != "0", ]
+countdf <- countdf[countdf$nucleotide != "N", ]
+countdf <- rbind(countdf, c("0", NA ,1000))
+countdf$Freq <- as.numeric(countdf$Freq)
+countdf$position <- factor(countdf$position, levels = c("-10","-9","-8","-7","-6","-5","-4","-3","-2","-1","0","1","2","3","4","5","6","7","8","9","10"))
+
+ggplot(countdf, aes(x = position, y = Freq, fill = nucleotide)) + geom_bar(position = "fill",stat = "identity") + geom_hline(yintercept=freqs_raw[4,'proportion'],linetype='dashed') + geom_hline(yintercept=freqs_raw[4,'proportion']+freqs_raw[3,'proportion'],linetype='dashed') + geom_hline(yintercept=freqs_raw[4,'proportion']+freqs_raw[3,'proportion']+freqs_raw[2,'proportion'],linetype='dashed') + scale_y_continuous(labels = percent_format()) + labs(title = "T>C (A>G)", y = "% of bases", x= "Base position") + theme(text = element_text(size=12), axis.text.x = element_text(vjust = 5), plot.title = element_text(hjust = 0.5, vjust= -2), legend.text=element_text(size=11), legend.box.margin = margin(6, 6, 6, 6),legend.key.size = unit(0.5, "cm"),legend.title=element_blank()) + theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.ticks.x=element_blank())
+
+dev.off()
+```
+
+```{r}
+tiff('figures/Plot5.tiff', units="in", width=7, height=4, res=300, compression = 'lzw')
+data_CtoT <- data_long[data_long$mut == 'T>A',]
+data_CtoT <- subset(data_CtoT, select = c("position", "nucleotide"))
+data_CtoT$nucleotide <- unlist(data_CtoT$nucleotide)
+countdf <- as.data.frame(table(data_CtoT))
+countdf <- countdf[countdf$position != "0", ]
+countdf <- countdf[countdf$nucleotide != "N", ]
+countdf <- rbind(countdf, c("0", NA ,1000))
+countdf$Freq <- as.numeric(countdf$Freq)
+countdf$position <- factor(countdf$position, levels = c("-10","-9","-8","-7","-6","-5","-4","-3","-2","-1","0","1","2","3","4","5","6","7","8","9","10"))
+
+ggplot(countdf, aes(x = position, y = Freq, fill = nucleotide)) + geom_bar(position = "fill",stat = "identity") + geom_hline(yintercept=freqs_raw[4,'proportion'],linetype='dashed') + geom_hline(yintercept=freqs_raw[4,'proportion']+freqs_raw[3,'proportion'],linetype='dashed') + geom_hline(yintercept=freqs_raw[4,'proportion']+freqs_raw[3,'proportion']+freqs_raw[2,'proportion'],linetype='dashed') + scale_y_continuous(labels = percent_format()) + labs(title = "T>A (A>T)", y = "% of bases", x= "Base position") + theme(text = element_text(size=12), axis.text.x = element_text(vjust = 5), plot.title = element_text(hjust = 0.5, vjust= -2), legend.text=element_text(size=11), legend.box.margin = margin(6, 6, 6, 6),legend.key.size = unit(0.5, "cm"),legend.title=element_blank()) + theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.ticks.x=element_blank())
+
+dev.off()
+```
+
+```{r}
+tiff('figures/Plot6.tiff', units="in", width=7, height=4, res=300, compression = 'lzw')
+data_CtoT <- data_long[data_long$mut == 'T>G',]
+data_CtoT <- subset(data_CtoT, select = c("position", "nucleotide"))
+data_CtoT$nucleotide <- unlist(data_CtoT$nucleotide)
+countdf <- as.data.frame(table(data_CtoT))
+countdf <- countdf[countdf$position != "0", ]
+countdf <- countdf[countdf$nucleotide != "N", ]
+countdf <- rbind(countdf, c("0", NA ,1000))
+countdf$Freq <- as.numeric(countdf$Freq)
+countdf$position <- factor(countdf$position, levels = c("-10","-9","-8","-7","-6","-5","-4","-3","-2","-1","0","1","2","3","4","5","6","7","8","9","10"))
+
+ggplot(countdf, aes(x = position, y = Freq, fill = nucleotide)) + geom_bar(position = "fill",stat = "identity") + geom_hline(yintercept=freqs_raw[4,'proportion'],linetype='dashed') + geom_hline(yintercept=freqs_raw[4,'proportion']+freqs_raw[3,'proportion'],linetype='dashed') + geom_hline(yintercept=freqs_raw[4,'proportion']+freqs_raw[3,'proportion']+freqs_raw[2,'proportion'],linetype='dashed') + scale_y_continuous(labels = percent_format()) + labs(title = "T>G (A>C)", y = "% of bases", x= "Base position") + theme(text = element_text(size=12), axis.text.x = element_text(vjust = 5), plot.title = element_text(hjust = 0.5, vjust= -2), legend.text=element_text(size=11), legend.box.margin = margin(6, 6, 6, 6),legend.key.size = unit(0.5, "cm"),legend.title=element_blank()) + theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.ticks.x=element_blank())
+
+dev.off()
+```
+
+```{r}
+tiff('figures/Plot.tiff', units="in", width=7, height=4, res=300, compression = 'lzw')
+data_CtoT <- subset(data_long, select = c("position", "nucleotide"))
+data_CtoT$nucleotide <- unlist(data_CtoT$nucleotide)
+countdf <- as.data.frame(table(data_CtoT))
+countdf <- countdf[countdf$position != "0", ]
+countdf <- countdf[countdf$nucleotide != "N", ]
+countdf <- rbind(countdf, c("0", NA ,1000))
+countdf$Freq <- as.numeric(countdf$Freq)
+countdf$position <- factor(countdf$position, levels = c("-10","-9","-8","-7","-6","-5","-4","-3","-2","-1","0","1","2","3","4","5","6","7","8","9","10"))
+
+ggplot(countdf, aes(x = position, y = Freq, fill = nucleotide)) + geom_bar(position = "fill",stat = "identity") + geom_hline(yintercept=freqs_raw[4,'proportion'],linetype='dashed') + geom_hline(yintercept=freqs_raw[4,'proportion']+freqs_raw[3,'proportion'],linetype='dashed') + geom_hline(yintercept=freqs_raw[4,'proportion']+freqs_raw[3,'proportion']+freqs_raw[2,'proportion'],linetype='dashed') + scale_y_continuous(labels = percent_format()) + labs(title = "All mutations", y = "% of bases", x= "Base position") + theme(text = element_text(size=12), axis.text.x = element_text(vjust = 5), plot.title = element_text(hjust = 0.5, vjust= -2), legend.text=element_text(size=11), legend.box.margin = margin(6, 6, 6, 6),legend.key.size = unit(0.5, "cm"),legend.title=element_blank()) + theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.ticks.x=element_blank())
+
+dev.off()
+```
+
+## Heatmap
+
+```{r}
+library(dplyr)
+
+#rec_classes <- vector(mode="list", length=6)
+#names(rec_classes) <- c("GtoA", "GtoC", "GtoT", "TtoA", "TtoC", "TtoG")
+#rec_classes[[1]] <- "CtoT"; rec_classes[[2]] <- "CtoG"; rec_classes[[3]] <- "CtoA"; rec_classes[[4]] <- "AtoT"; rec_classes[[5]] <- "AtoG"; rec_classes[[6]] <- "AtoC"
+
+# Prepare data to plot.
+one_mer <- read.csv(file="results/1mer_signatures_DNM_collapsed.txt", header = TRUE, sep="\t")
+three_mer <- read.csv(file="results/3mer_signatures_DNM_collapsed.txt", header = TRUE, sep="\t")
+five_mer <- read.csv(file="results/5mer_signatures_DNM_collapsed.txt", header = TRUE, sep="\t")
+seven_mer <- read.csv(file="results/7mer_signatures_DNM_collapsed.txt", header = TRUE, sep="\t")
+```
+
+```{r}
+one_mer$class <- gsub('.*\'(A|C|G|T)\'.*\'(A|C|G|T)\'.*','\\1to\\2', one_mer$mutation)
+one_mer$type <- '1-mers'
+#for (i in 1:length(one_mer$class)){one_mer$class <- replace(one_mer$class, one_mer$class == names(rec_classes[i]), rec_classes[i])}
+#one_mer$class <- unlist(one_mer$class)
+#one_mer <- aggregate(Probability_germinal~class + type, one_mer, sum)
+clean_one_mer <- subset(one_mer, select = c("Probability_germinal_collapsed", "class", "type"))
+
+three_mer$ref <- gsub('.*\'(\\w+)\'.*\'(\\w+)\'.*','\\1', three_mer$mutation)
+three_mer$alt <- gsub('.*\'(\\w+)\'.*\'(\\w+)\'.*','\\2', three_mer$mutation)
+three_mer$class <- paste(substring(three_mer$ref, 2, 2), substring(three_mer$alt, 2, 2), sep = "to")
+three_mer["minusone"] <- substring(three_mer$ref, 1, 1)
+three_mer["plusone"] <- substring(three_mer$ref, 3, 3)
+three_mer$type <- '3-mers'
+#for (i in 1:length(three_mer$class)){three_mer$class <- replace(three_mer$class, three_mer$class == names(rec_classes[i]), rec_classes[i])}
+#three_mer$class <- unlist(three_mer$class)
+#three_mer <- aggregate(Probability_germinal~class + type + minusone + plusone, three_mer, sum)
+clean_three_mer <- subset(three_mer, select = c("Probability_germinal_collapsed", "class", "type", "minusone", "plusone"))
+
+#for (i in 1:length(one_mer$class)){one_mer$class <- replace(one_mer$class, one_mer$class == names(rec_classes[i]), rec_classes[i])}
+tmp_dat <- data.frame()
+for (mut in clean_one_mer$class){
+  core_value <- clean_one_mer[which(clean_one_mer$class == mut), 1]
+  sub <- clean_three_mer[which(clean_three_mer$class == mut),]
+  corrected_factor <- (core_value*16)/(sum(sub$Probability_germinal_collapsed))
+  sub$correct_prob <- sub$Probability_germinal_collapsed*corrected_factor
+  tmp_dat <- rbind(tmp_dat,sub)
+}
+tmp_dat <- subset(tmp_dat, select = c("correct_prob"))
+clean_three_mer <- merge(clean_three_mer, tmp_dat, by="row.names", all.x = TRUE)
+clean_three_mer <- subset(clean_three_mer, select = c(-1))
+
+five_mer$ref <- gsub('.*\'(\\w+)\'.*\'(\\w+)\'.*','\\1', five_mer$mutation)
+five_mer$alt <- gsub('.*\'(\\w+)\'.*\'(\\w+)\'.*','\\2', five_mer$mutation)
+five_mer$class <- paste(substring(five_mer$ref, 3, 3), substring(five_mer$alt, 3, 3), sep = "to")
+five_mer["minustwo"] <- substring(five_mer$ref, 1, 1)
+five_mer["plustwo"] <- substring(five_mer$ref, 5, 5)
+five_mer["minusone"] <- substring(five_mer$ref, 2, 2)
+five_mer["plusone"] <- substring(five_mer$ref, 4, 4)
+five_mer$type <- '5-mers'
+clean_five_mer <- subset(five_mer, select = c("Probability_germinal_collapsed", "class", "type", "minusone", "plusone", "minustwo", "plustwo"))
+
+tmp_dat <- data.frame()
+for (mut in clean_one_mer$class) {
+  for (minone in c('A','C','G','T')) {
+    for(plone in c('A','C','G','T')) {
+      core_value <- clean_three_mer[which((clean_three_mer$class == mut) & (clean_three_mer$minusone == minone) & (clean_three_mer$plusone == plone)), 6]
+      sub <- clean_five_mer[which((clean_five_mer$class == mut) & (clean_five_mer$minusone == minone) & (clean_five_mer$plusone == plone)),]
+      corrected_factor <- (core_value*16)/(sum(sub$Probability_germinal_collapsed))
+      sub$correct_prob <- sub$Probability_germinal_collapsed*corrected_factor
+      tmp_dat <- rbind(tmp_dat,sub)
+    }
+  }
+}
+tmp_dat <- subset(tmp_dat, select = c("correct_prob"))
+clean_five_mer <- merge(clean_five_mer, tmp_dat, by="row.names", all.x = TRUE)
+clean_five_mer <- subset(clean_five_mer, select = c(-1))
+
+seven_mer$ref <- gsub('.*\'(\\w+)\'.*\'(\\w+)\'.*','\\1', seven_mer$mutation)
+seven_mer$alt <- gsub('.*\'(\\w+)\'.*\'(\\w+)\'.*','\\2', seven_mer$mutation)
+seven_mer$class <- paste(substring(seven_mer$ref, 4, 4), substring(seven_mer$alt, 4, 4), sep = "to")
+seven_mer["minusthree"] <- substring(seven_mer$ref, 1, 1)
+seven_mer["plusthree"] <- substring(seven_mer$ref, 7, 7)
+seven_mer["minustwo"] <- substring(seven_mer$ref, 2, 2)
+seven_mer["plustwo"] <- substring(seven_mer$ref, 6, 6)
+seven_mer["minusone"] <- substring(seven_mer$ref, 3, 3)
+seven_mer["plusone"] <- substring(seven_mer$ref, 5, 5)
+seven_mer$type <- '7-mers'
+clean_seven_mer <- subset(seven_mer, select = c("Probability_germinal_collapsed", "class", "type", "minusone", "plusone", "minustwo", "plustwo", "minusthree", "plusthree"))
+
+tmp_dat <- data.frame()
+for (mut in clean_one_mer$class) {
+  for (minone in c('A','C','G','T')) {
+    for(plone in c('A','C','G','T')) {
+      for (mintwo in c('A','C','G','T')) {
+        for(pltwo in c('A','C','G','T')) {
+          core_value <- clean_five_mer[which((clean_five_mer$class == mut) & (clean_five_mer$minusone == minone) &
+                        (clean_five_mer$plusone == plone) & (clean_five_mer$plustwo == pltwo) & (clean_five_mer$minustwo == mintwo)), 8]
+          sub <- clean_seven_mer[which((clean_seven_mer$class == mut) & (clean_seven_mer$minusone == minone) &
+                        (clean_seven_mer$plusone == plone) & (clean_seven_mer$plustwo == pltwo) & (clean_five_mer$minustwo == mintwo)),]
+          corrected_factor <- (core_value*16)/(sum(sub$Probability_germinal_collapsed))
+          sub$correct_prob <- sub$Probability_germinal_collapsed*corrected_factor
+          tmp_dat <- rbind(tmp_dat,sub)
+        }
+      }
+    }
+  }
+}
+tmp_dat <- subset(tmp_dat, select = c("correct_prob"))
+clean_seven_mer <- merge(clean_seven_mer, tmp_dat, by="row.names", all.x = TRUE)
+clean_seven_mer <- subset(clean_seven_mer, select = c(-1))
+```
+
+```{r}
+summary(clean_three_mer$correct_prob)
+```
+
+```{r}
+summary(clean_five_mer$correct_prob)
+```
+
+```{r}
+summary(clean_seven_mer[which(clean_seven_mer$correct_prob != 0.0),]$correct_prob)
+```
+
+```{r}
+library(RColorBrewer)
+library(ggplot2)
+
+heatmap_1mer <- function(dat, classy){
+
+data1 <- dat[which(dat$class == classy),]
+
+p <- ggplot() + geom_tile(data = data1, mapping = aes(x = class, y= class ,fill = Probability_germinal_collapsed )) +
+  scale_fill_gradientn("Relative Rate",
+    colours=rev(brewer.pal(11,"RdBu")),
+		trans="log10",
+    limits=c(0.0000001676, 0.001496)) +
+  geom_rect(aes(xmin = 0 + 0.5, xmax = 1 + 0.5, ymin = 0 + 0.5, ymax = 1 + 0.5),
+    fill = "transparent", color = "grey70", size = 0.6) +
+  theme_classic() +
+    coord_fixed() +
+	theme(
+		legend.title = element_text(size=18),
+		legend.text = element_text(size=16),
+		legend.key.height = unit(1.5, "cm"),
+		axis.ticks.x = element_blank(),
+		axis.ticks.y = element_blank(),
+		axis.text.y = element_blank(),
+    axis.text.x = element_blank(),
+		axis.line=element_blank())
+return(p)
+}
+
+classes <- clean_one_mer$class
+
+for (i in classes) {
+  file_name <- paste('figures/1mer_', i, '.tiff', sep = "")
+  plot1 <- heatmap_1mer(clean_one_mer, i)
+  ggsave(file_name, device = 'tiff', dpi = 300)
+}
+```
+
+
+```{r}
+heatmap_3mer <- function(dat, classy){
+
+data1 <- dat[which(dat$class == classy),]
+
+p <- ggplot() + geom_tile(data = data1, mapping = aes(y = minusone, x = plusone, fill = Probability_germinal_collapsed)) +
+  scale_fill_gradientn("Relative Rate",
+    colours=rev(brewer.pal(11,"RdBu")),
+		trans="log10",
+    limits=c(0.0000001676, 0.001496)) +
+  geom_rect(aes(xmin = 0 + 0.5, xmax = 4 + 0.5, ymin = 0 + 0.5, ymax = 4 + 0.5),
+    fill = "transparent", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = 0 + 0.3, xmax = 0 + 0.45, ymin = 0 + 0.5, ymax = 0 + 1.5),
+    fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = 0 + 0.3, xmax = 0 + 0.45, ymin = 1 + 0.5, ymax = 1 + 1.5),
+    fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = 0 + 0.3, xmax = 0 + 0.45, ymin = 2 + 0.5, ymax = 2 + 1.5),
+    fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = 0 + 0.3, xmax = 0 + 0.45, ymin = 3 + 0.5, ymax = 3 + 1.5),
+    fill = "grey10", color = "grey10", size = 0.6) +
+  geom_rect(aes(ymin = 0 + 0.3, ymax = 0 + 0.45, xmin = 0 + 0.5, xmax = 0 + 1.5),
+    fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = 0 + 0.3, ymax = 0 + 0.45, xmin = 1 + 0.5, xmax = 1 + 1.5),
+    fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = 0 + 0.3, ymax = 0 + 0.45, xmin = 2 + 0.5, xmax = 2 + 1.5),
+    fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = 0 + 0.3, ymax = 0 + 0.45, xmin = 3 + 0.5, xmax = 3 + 1.5),
+    fill = "grey10", color = "grey10", size = 0.6) +
+  geom_text(aes(x= 0 + 0.37, y = 0 + 1.0), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(x= 0 + 0.37, y = 1 + 1.0), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(x= 0 + 0.37, y = 2 + 1.0), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(x= 0 + 0.37, y = 3 + 1.0), label= 'T', family="Sans", color = "white") +
+  geom_text(aes(x= 0 + 1.0, y = 0 + 0.37), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(x= 1 + 1.0, y = 0 + 0.37), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(x= 2 + 1.0, y = 0 + 0.37), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(x= 3 + 1.0, y = 0 + 0.37), label= 'T', family="Sans", color = "white") +
+  xlab("Upstream sequence") +
+	ylab("Downstream sequence") +
+  theme_classic() +
+  coord_fixed() +
+	theme(
+		legend.title = element_text(size=18),
+		legend.text = element_text(size=16),
+		legend.key.height = unit(1.5, "cm"),
+		axis.ticks.x = element_blank(),
+		axis.ticks.y = element_blank(),
+		axis.text.y = element_blank(),
+    axis.text.x = element_blank(),
+		axis.line=element_blank())
+return(p)
+}
+
+classes <- clean_three_mer$class[!duplicated(clean_three_mer$class)]
+
+for (i in classes) {
+  file_name <- paste('figures/3mer_', i, '.tiff', sep = "")
+  plot1 <- heatmap_3mer(clean_three_mer, i)
+  ggsave(file_name, device = 'tiff', dpi = 300)
+}
+```
+
+```{r}
+heatmap_5mer <- function(dat, classy){
+
+  data1 <- dat[which(dat$class == classy),]
+  data1$minuscontext <- paste(data1$minusone, data1$minustwo, sep="")
+  data1$pluscontext <- paste(data1$plusone, data1$plustwo, sep="")
+
+p <- ggplot() + geom_tile(data = data1, mapping = aes(y = minuscontext, x = pluscontext, fill = Probability_germinal_collapsed)) +
+  scale_fill_gradientn("Relative Rate",
+    colours=rev(brewer.pal(11,"RdBu")),
+		trans="log10",
+    limits=c(0.0000001676, 0.001496)) +
+  geom_rect(aes(xmin = 0 + 0.5, xmax = 16 + 0.5, ymin = 0 + 0.5, ymax = 16 + 0.5),
+    fill = "transparent", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = 0 + 0.5, xmax = 4 + 0.5, ymin = 0 + 0.5, ymax = 16 + 0.5),
+    fill = "transparent", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = 8 + 0.5, xmax = 12 + 0.5, ymin = 0 + 0.5, ymax = 16 + 0.5),
+    fill = "transparent", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = 0 + 0.5, xmax = 16 + 0.5, ymin = 0 + 0.5, ymax = 4 + 0.5),
+    fill = "transparent", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = 0 + 0.5, xmax = 16 + 0.5, ymin = 8 + 0.5, ymax = 12 + 0.5),
+    fill = "transparent", color = "grey70", size = 0.6) +
+  
+  geom_rect(aes(xmin = -0.3, xmax = 0 + 0.3, ymin = 0 + 0.5, ymax = 4 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -0.3, xmax = 0 + 0.3, ymin = 4 + 0.5, ymax = 8 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -0.3, xmax = 0 + 0.3, ymin = 8 + 0.5, ymax = 12 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -0.3, xmax = 0 + 0.3, ymin = 12 + 0.5, ymax = 16 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(ymin = -0.25, ymax = 0 + 0.35, xmin = 0 + 0.5, xmax = 4 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -0.25, ymax = 0 + 0.35, xmin = 4 + 0.5, xmax = 8 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -0.25, ymax = 0 + 0.35, xmin = 8 + 0.5, xmax = 12 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -0.25, ymax = 0 + 0.35, xmin = 12 + 0.5, xmax = 16 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(xmin = -0.9, xmax = -0.3, ymin = 0 + 0.5, ymax = 0 + 1.5),
+    fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -0.9, xmax = -0.3, ymin = 1 + 0.5, ymax = 1 + 1.5),
+     fill = "grey50", color = "grey50", size = 0.6) +
+   geom_rect(aes(xmin = -0.9, xmax = -0.3, ymin = 2 + 0.5, ymax = 2 + 1.5),
+     fill = "grey30", color = "grey30", size = 0.6) +
+   geom_rect(aes(xmin = -0.9, xmax = -0.3, ymin = 3 + 0.5, ymax = 3 + 1.5),
+     fill = "grey10", color = "grey10", size = 0.6) +
+
+  geom_rect(aes(xmin = -0.9, xmax = -0.3, ymin = 4 + 0 + 0.5, ymax = 4 + 0 + 1.5),
+    fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -0.9, xmax = -0.3, ymin = 4 +1 + 0.5, ymax = 4 +1 + 1.5),
+     fill = "grey50", color = "grey50", size = 0.6) +
+   geom_rect(aes(xmin = -0.9, xmax = -0.3, ymin = 4 +2 + 0.5, ymax =4 + 2 + 1.5),
+     fill = "grey30", color = "grey30", size = 0.6) +
+   geom_rect(aes(xmin = -0.9, xmax = -0.3, ymin = 4 +3 + 0.5, ymax =4 + 3 + 1.5),
+     fill = "grey10", color = "grey10", size = 0.6) +
+
+  geom_rect(aes(xmin = -0.9, xmax = -0.3, ymin = 8 + 0 + 0.5, ymax = 8 + 0 + 1.5),
+    fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -0.9, xmax = -0.3, ymin = 8 +1 + 0.5, ymax = 8 +1 + 1.5),
+     fill = "grey50", color = "grey50", size = 0.6) +
+   geom_rect(aes(xmin = -0.9, xmax = -0.3, ymin = 8 +2 + 0.5, ymax =8 + 2 + 1.5),
+     fill = "grey30", color = "grey30", size = 0.6) +
+   geom_rect(aes(xmin = -0.9, xmax = -0.3, ymin = 8 +3 + 0.5, ymax =8 + 3 + 1.5),
+     fill = "grey10", color = "grey10", size = 0.6) +
+
+  geom_rect(aes(xmin = -0.9, xmax = -0.3, ymin = 12 + 0 + 0.5, ymax = 12 + 0 + 1.5),
+    fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -0.9, xmax = -0.3, ymin = 12 +1 + 0.5, ymax = 12 +1 + 1.5),
+    fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -0.9, xmax = -0.3, ymin = 12 +2 + 0.5, ymax =12 + 2 + 1.5),
+    fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -0.9, xmax = -0.3, ymin = 12 +3 + 0.5, ymax =12 + 3 + 1.5),
+    fill = "grey10", color = "grey10", size = 0.6) +
+
+  geom_rect(aes(ymin = -0.85, ymax = -0.25, xmin = 0 + 0.5, xmax = 0 + 1.5),
+     fill = "grey70", color = "grey70", size = 0.6) +
+   geom_rect(aes(ymin = -0.85, ymax = -0.25, xmin = 1 + 0.5, xmax = 1 + 1.5),
+     fill = "grey50", color = "grey50", size = 0.6) +
+   geom_rect(aes(ymin = -0.85, ymax = -0.25, xmin = 2 + 0.5, xmax = 2 + 1.5),
+     fill = "grey30", color = "grey30", size = 0.6) +
+   geom_rect(aes(ymin = -0.85, ymax = -0.25, xmin = 3 + 0.5, xmax = 3 + 1.5),
+     fill = "grey10", color = "grey10", size = 0.6) +
+
+    geom_rect(aes(ymin = -0.85, ymax = -0.25, xmin = 4 +0 + 0.5, xmax = 4 +0 + 1.5),
+     fill = "grey70", color = "grey70", size = 0.6) +
+   geom_rect(aes(ymin = -0.85, ymax = -0.25, xmin = 4 +1 + 0.5, xmax = 4 +1 + 1.5),
+     fill = "grey50", color = "grey50", size = 0.6) +
+   geom_rect(aes(ymin = -0.85, ymax = -0.25, xmin = 4 +2 + 0.5, xmax = 4 +2 + 1.5),
+     fill = "grey30", color = "grey30", size = 0.6) +
+   geom_rect(aes(ymin = -0.85, ymax = -0.25, xmin = 4 +3 + 0.5, xmax = 4 +3 + 1.5),
+     fill = "grey10", color = "grey10", size = 0.6) +
+
+    geom_rect(aes(ymin = -0.85, ymax = -0.25, xmin = 8 +0 + 0.5, xmax = 8 +0 + 1.5),
+     fill = "grey70", color = "grey70", size = 0.6) +
+   geom_rect(aes(ymin = -0.85, ymax = -0.25, xmin = 8 +1 + 0.5, xmax = 8 +1 + 1.5),
+     fill = "grey50", color = "grey50", size = 0.6) +
+   geom_rect(aes(ymin = -0.85, ymax = -0.25, xmin = 8 +2 + 0.5, xmax = 8 +2 + 1.5),
+     fill = "grey30", color = "grey30", size = 0.6) +
+   geom_rect(aes(ymin = -0.85, ymax = -0.25, xmin = 8 +3 + 0.5, xmax = 8 +3 + 1.5),
+     fill = "grey10", color = "grey10", size = 0.6) +
+
+    geom_rect(aes(ymin = -0.85, ymax = -0.25, xmin = 12 + 0 + 0.5, xmax = 12 + 0 + 1.5),
+     fill = "grey70", color = "grey70", size = 0.6) +
+   geom_rect(aes(ymin = -0.85, ymax = -0.25, xmin = 12 +1 + 0.5, xmax = 12 +1 + 1.5),
+     fill = "grey50", color = "grey50", size = 0.6) +
+   geom_rect(aes(ymin = -0.85, ymax = -0.25, xmin = 12 +2 + 0.5, xmax = 12 +2 + 1.5),
+     fill = "grey30", color = "grey30", size = 0.6) +
+   geom_rect(aes(ymin = -0.85, ymax = -0.25, xmin = 12 +3 + 0.5, xmax = 12 +3 + 1.5),
+     fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_text(aes(x= -0.58, y = 0 + 1.0), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(x= -0.58, y = 1 + 1.0), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(x= -0.58, y = 2 + 1.0), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(x= -0.58, y = 3 + 1.0), label= 'T', family="Sans", color = "white") +
+  
+    geom_text(aes(x= -0.58, y = 4 + 0 + 1.0), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(x= -0.58, y =4 + 1 + 1.0), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(x= -0.58, y = 4 +2 + 1.0), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(x= -0.58, y = 4 +3 + 1.0), label= 'T', family="Sans", color = "white") +
+  
+    geom_text(aes(x= -0.58, y = 8 +0 + 1.0), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(x= -0.58, y = 8 +1 + 1.0), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(x= -0.58, y = 8 +2 + 1.0), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(x= -0.58, y = 8 + 3 + 1.0), label= 'T', family="Sans", color = "white") +
+  
+    geom_text(aes(x= -0.58, y = 12+ 0 + 1.0), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(x= -0.58, y = 12+ 1 + 1.0), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(x= -0.58, y = 12 + 2 + 1.0), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(x= -0.58, y = 12 +3 + 1.0), label= 'T', family="Sans", color = "white") +
+  
+  geom_text(aes(x= 0 + 0.95, y = -0.55), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(x= 1 + 0.95, y = -0.55), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(x= 2 + 0.95, y = -0.55), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(x= 3 + 0.95, y = -0.55), label= 'T', family="Sans", color = "white") +
+  
+    geom_text(aes(x= 4+0 + 0.95, y = -0.55), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(x= 4+1 + 0.95, y = -0.55), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(x= 4+2 + 0.95, y = -0.55), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(x= 4+3 + 0.95, y = -0.55), label= 'T', family="Sans", color = "white") +
+  
+    geom_text(aes(x= 8+0 + 0.95, y = -0.55), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(x= 8+1 + 0.95, y = -0.55), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(x= 8+2 + 0.95, y = -0.55), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(x= 8+3 + 0.95, y = -0.55), label= 'T', family="Sans", color = "white") +
+  
+    geom_text(aes(x= 12+0 + 0.95, y = -0.55), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(x= 12+1 + 0.95, y = -0.55), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(x= 12+2 + 0.95, y = -0.55), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(x= 12+3 + 0.95, y = -0.55), label= 'T', family="Sans", color = "white") +
+  
+  geom_text(aes(x= 0 + 2.45, y = 0.1), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(x= 4 + 2.45, y = 0.1), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(x= 8 + 2.45, y = 0.1), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(x= 12 + 2.45, y = 0.1), label= 'T', family="Sans", color = "white") +
+  
+  geom_text(aes(y= 0 + 2.45, x = 0.02), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(y= 4 + 2.45, x = 0.02), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(y= 8 + 2.45, x = 0.02), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(y= 12 + 2.45, x = 0.02), label= 'T', family="Sans", color = "white") +
+  
+  coord_fixed() +
+  
+  xlab("Upstream sequence") +
+	ylab("Downstream sequence") +
+  theme_classic() +
+	theme(
+		legend.title = element_text(size=18),
+		legend.text = element_text(size=16),
+		legend.key.height = unit(1.5, "cm"),
+		axis.ticks.x = element_blank(),
+		axis.ticks.y = element_blank(),
+		axis.text.y = element_blank(),
+    axis.text.x = element_blank(),
+		axis.line=element_blank())
+return(p)
+}
+
+classes <- clean_three_mer$class[!duplicated(clean_three_mer$class)]
+
+for (i in classes) {
+  file_name <- paste('figures/5mer_', i, '.tiff', sep = "")
+  plot1 <- heatmap_5mer(clean_five_mer, i)
+  ggsave(file_name, device = 'tiff', dpi = 300)
+}
+```
+
+```{r}
+heatmap_7mer <- function(dat, classy){
+
+  data1 <- dat[which(dat$class == classy),]
+  data1$minuscontext <- paste(data1$minusone, data1$minustwo, data1$minusthree, sep="")
+  data1$pluscontext <- paste(data1$plusone, data1$plustwo, data1$plusthree, sep="")
+
+p <- ggplot() + geom_tile(data = data1, mapping = aes(y = minuscontext, x = pluscontext, fill = Probability_germinal_collapsed)) +
+  scale_fill_gradientn("Relative Rate",
+    colours=rev(brewer.pal(11,"RdBu")),
+		trans="log10",
+    limits=c(0.0000001676, 0.001496)) +
+  geom_rect(aes(xmin = 0 + 0.5, xmax = 16*4 + 0.5, ymin = 0 + 0.5, ymax = 16*4 + 0.5),
+    fill = "transparent", color = "grey70", size = 0.6) +
+  
+  geom_rect(aes(xmin = 0 + 0.5, xmax = 4*4 + 0.5, ymin = 0 + 0.5, ymax = 16*4 + 0.5),
+    fill = "transparent", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = 8*4 + 0.5, xmax = 12*4 + 0.5, ymin = 0 + 0.5, ymax = 16*4 + 0.5),
+    fill = "transparent", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = 0 + 0.5, xmax = 16*4 + 0.5, ymin = 0 + 0.5, ymax = 4*4 + 0.5),
+    fill = "transparent", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = 0 + 0.5, xmax = 16*4 + 0.5, ymin = 8*4 + 0.5, ymax = 12*4 + 0.5),
+    fill = "transparent", color = "grey70", size = 0.6) +
+ 
+  geom_rect(aes(xmin = 0 + 0.5, xmax = 4 + 0.5, ymin = 0 + 0.5, ymax = 16*4 + 0.5),
+     fill = "transparent", color = "grey70", size = 0.6) +
+   geom_rect(aes(xmin = 8 + 0.5, xmax = 12 + 0.5, ymin = 0 + 0.5, ymax = 16*4 + 0.5),
+     fill = "transparent", color = "grey70", size = 0.6) +
+  
+    geom_rect(aes(xmin = 16 + 0.5, xmax = 16 + 4 + 0.5, ymin = 0 + 0.5, ymax = 16*4 + 0.5),
+     fill = "transparent", color = "grey70", size = 0.6) +
+   geom_rect(aes(xmin =  16 + 8 + 0.5, xmax = 16 +  12 + 0.5, ymin = 0 + 0.5, ymax = 16*4 + 0.5),
+     fill = "transparent", color = "grey70", size = 0.6) +
+  
+    geom_rect(aes(xmin = 16*2 + 0 + 0.5, xmax = 16*2 + 4 + 0.5, ymin = 0 + 0.5, ymax = 16*4 + 0.5),
+     fill = "transparent", color = "grey70", size = 0.6) +
+   geom_rect(aes(xmin = 16*2 + 8 + 0.5, xmax = 16*2 + 12 + 0.5, ymin = 0 + 0.5, ymax = 16*4 + 0.5),
+     fill = "transparent", color = "grey70", size = 0.6) +
+  
+    geom_rect(aes(xmin = 16*3 + 0.5, xmax = 16*3 + 4 + 0.5, ymin = 0 + 0.5, ymax = 16*4 + 0.5),
+     fill = "transparent", color = "grey70", size = 0.6) +
+   geom_rect(aes(xmin = 16*3 + 8 + 0.5, xmax = 16*3 + 12 + 0.5, ymin = 0 + 0.5, ymax = 16*4 + 0.5),
+     fill = "transparent", color = "grey70", size = 0.6) +
+  
+  geom_rect(aes(ymin = 0 + 0.5, ymax = 4 + 0.5, xmin = 0 + 0.5, xmax = 16*4 + 0.5),
+     fill = "transparent", color = "grey70", size = 0.6) +
+   geom_rect(aes(ymin  = 8 + 0.5, ymax = 12 + 0.5, xmin = 0 + 0.5, xmax = 16*4 + 0.5),
+     fill = "transparent", color = "grey70", size = 0.6) +
+  
+    geom_rect(aes(ymin = 16 + 0.5, ymax = 16 + 4 + 0.5, xmin = 0 + 0.5, xmax = 16*4 + 0.5),
+     fill = "transparent", color = "grey70", size = 0.6) +
+   geom_rect(aes(ymin =  16 + 8 + 0.5, ymax = 16 +  12 + 0.5, xmin = 0 + 0.5, xmax = 16*4 + 0.5),
+     fill = "transparent", color = "grey70", size = 0.6) +
+  
+    geom_rect(aes(ymin = 16*2 + 0 + 0.5, ymax = 16*2 + 4 + 0.5, xmin = 0 + 0.5, xmax = 16*4 + 0.5),
+     fill = "transparent", color = "grey70", size = 0.6) +
+   geom_rect(aes(ymin = 16*2 + 8 + 0.5, ymax = 16*2 + 12 + 0.5, xmin = 0 + 0.5, xmax = 16*4 + 0.5),
+     fill = "transparent", color = "grey70", size = 0.6) +
+  
+    geom_rect(aes(ymin = 16*3 + 0.5, ymax = 16*3 + 4 + 0.5, xmin = 0 + 0.5, xmax = 16*4 + 0.5),
+     fill = "transparent", color = "grey70", size = 0.6) +
+   geom_rect(aes(ymin = 16*3 + 8 + 0.5, ymax = 16*3 + 12 + 0.5, xmin = 0 + 0.5, xmax = 16*4 + 0.5),
+     fill = "transparent", color = "grey70", size = 0.6) +
+  
+  geom_rect(aes(xmin = -2.2, xmax = -0.1, ymin = 4*0 + 0.5, ymax = 4*4 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -2.2, xmax = -0.1, ymin = 4*4 + 0.5, ymax = 4*8 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -2.2, xmax = -0.1, ymin = 4*8 + 0.5, ymax = 4*12 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -2.2, xmax = -0.1, ymin = 4*12 + 0.5, ymax = 4*16 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+
+  geom_rect(aes(ymin = -2.1, ymax = -0.1 , xmin = 4*0 + 0.5, xmax = 4*4 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -2.1, ymax = -0.1 , xmin = 4*4 + 0.5, xmax = 4*8 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -2.1, ymax = -0.1 , xmin = 4*8 + 0.5, xmax = 4*12 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -2.1, ymax = -0.1 , xmin = 4*12 + 0.5, xmax = 4*16 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(xmin = -4.1, xmax = -2.2 , ymin = 0 + 0.5, ymax = 4 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -4.1, xmax = -2.2 , ymin = 4 + 0.5, ymax = 8 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -4.1, xmax = -2.2 , ymin = 8 + 0.5, ymax = 12 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -4.1, xmax = -2.2 , ymin = 12 + 0.5, ymax = 16 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+    geom_rect(aes(xmin = -4.1, xmax = -2.2 , ymin = 4*4 + 0 + 0.5, ymax = 4*4 +4 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -4.1, xmax = -2.2 , ymin = 4*4 +4 + 0.5, ymax = 4*4 +8 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -4.1, xmax = -2.2 , ymin = 4*4 +8 + 0.5, ymax = 4*4 +12 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -4.1, xmax = -2.2 , ymin = 4*4 +12 + 0.5, ymax = 4*4 +16 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(xmin = -4.1, xmax = -2.2 , ymin = 4*4*2 + 0 + 0.5, ymax = 4*4*2 + 4 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -4.1, xmax = -2.2 , ymin = 4*4*2 +4 + 0.5, ymax = 4*4*2 +8 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -4.1, xmax = -2.2 , ymin = 4*4*2 +8 + 0.5, ymax = 4*4*2 +12 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -4.1, xmax = -2.2 , ymin = 4*4*2 +12 + 0.5, ymax = 4*4*2 +16 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+
+  geom_rect(aes(xmin = -4.1, xmax = -2.2 , ymin = 4*4*3 +0 + 0.5, ymax = 4*4*3 +4 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -4.1, xmax = -2.2 , ymin = 4*4*3 +4 + 0.5, ymax = 4*4*3 +8 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -4.1, xmax = -2.2 , ymin = 4*4*3 +8 + 0.5, ymax = 4*4*3 +12 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -4.1, xmax = -2.2 , ymin = 4*4*3 +12 + 0.5, ymax = 4*4*3 +16 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+
+   geom_rect(aes(ymin = -4.1, ymax = -2.2 , xmin = 0 + 0.5, xmax = 4 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -4.1, ymax = -2.2 , xmin = 4 + 0.5, xmax = 8 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -4.1, ymax = -2.2 , xmin = 8 + 0.5, xmax = 12 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -4.1, ymax = -2.2 , xmin = 12 + 0.5, xmax = 16 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+    geom_rect(aes(ymin = -4.1, ymax = -2.2 , xmin = 4*4 + 0 + 0.5, xmax = 4*4 +4 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -4.1, ymax = -2.2 , xmin = 4*4 +4 + 0.5, xmax = 4*4 +8 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -4.1, ymax = -2.2 , xmin = 4*4 +8 + 0.5, xmax = 4*4 +12 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -4.1, ymax = -2.2 , xmin = 4*4 +12 + 0.5, xmax = 4*4 +16 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(ymin = -4.1, ymax = -2.2 , xmin = 4*4*2 + 0 + 0.5, xmax = 4*4*2 + 4 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -4.1, ymax = -2.2 , xmin = 4*4*2 +4 + 0.5, xmax = 4*4*2 +8 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -4.1, ymax = -2.2 , xmin = 4*4*2 +8 + 0.5, xmax = 4*4*2 +12 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -4.1, ymax = -2.2 , xmin = 4*4*2 +12 + 0.5, xmax = 4*4*2 +16 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+
+  geom_rect(aes(ymin = -4.1, ymax = -2.2 , xmin = 4*4*3 +0 + 0.5, xmax = 4*4*3 +4 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -4.1, ymax = -2.2 , xmin = 4*4*3 +4 + 0.5, xmax = 4*4*3 +8 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -4.1, ymax = -2.2 , xmin = 4*4*3 +8 + 0.5, xmax = 4*4*3 +12 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -4.1, ymax = -2.2 , xmin = 4*4*3 +12 + 0.5, xmax = 4*4*3 +16 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 0 + 0.5, ymax = 1 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 1 + 0.5, ymax = 2 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2 + 0.5, ymax = 3 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3 + 0.5, ymax = 4 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+    geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*2+0 + 0.5, ymax = 2*2+1 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*2+1 + 0.5, ymax = 2*2+2 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*2+2 + 0.5, ymax = 2*2+3 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*2+3 + 0.5, ymax = 2*2+4 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+    geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*2*2+0 + 0.5, ymax = 2*2*2+1 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*2*2+1 + 0.5, ymax = 2*2*2+2 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*2*2+2 + 0.5, ymax = 2*2*2+3 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*2*2+3 + 0.5, ymax = 2*2*2+4 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+
+    geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*4+0 + 0.5, ymax = 3*4+1 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*4+1 + 0.5, ymax = 3*4+2 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*4+2 + 0.5, ymax = 3*4+3 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*4+3 + 0.5, ymax = 3*4+4 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+   geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 16+0 + 0.5, ymax = 16+1 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 16+1 + 0.5, ymax = 16+2 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 16+2 + 0.5, ymax = 16+3 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 16+3 + 0.5, ymax = 16+4 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+    geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 16+2*2+0 + 0.5, ymax = 16+2*2+1 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 16+2*2+1 + 0.5, ymax = 16+2*2+2 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 16+2*2+2 + 0.5, ymax = 16+2*2+3 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 16+2*2+3 + 0.5, ymax = 16+2*2+4 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+    geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 16+2*2*2+0 + 0.5, ymax = 16+2*2*2+1 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 16+2*2*2+1 + 0.5, ymax = 16+2*2*2+2 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 16+2*2*2+2 + 0.5, ymax = 16+2*2*2+3 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 16+2*2*2+3 + 0.5, ymax = 16+2*2*2+4 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+
+    geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 16+3*4+0 + 0.5, ymax = 16+3*4+1 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 16+3*4+1 + 0.5, ymax = 16+3*4+2 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 16+3*4+2 + 0.5, ymax = 16+3*4+3 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 16+3*4+3 + 0.5, ymax = 16+3*4+4 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+     geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*16+0 + 0.5, ymax = 2*16+1 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*16+1 + 0.5, ymax = 2*16+2 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*16+2 + 0.5, ymax = 2*16+3 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*16+3 + 0.5, ymax = 2*16+4 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+    geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*16+2*2+0 + 0.5, ymax = 2*16+2*2+1 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*16+2*2+1 + 0.5, ymax = 2*16+2*2+2 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*16+2*2+2 + 0.5, ymax = 2*16+2*2+3 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*16+2*2+3 + 0.5, ymax = 2*16+2*2+4 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+    geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*16+2*2*2+0 + 0.5, ymax = 2*16+2*2*2+1 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*16+2*2*2+1 + 0.5, ymax = 2*16+2*2*2+2 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*16+2*2*2+2 + 0.5, ymax = 2*16+2*2*2+3 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*16+2*2*2+3 + 0.5, ymax = 2*16+2*2*2+4 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+
+    geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*16+3*4+0 + 0.5, ymax = 2*16+3*4+1 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*16+3*4+1 + 0.5, ymax = 2*16+3*4+2 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*16+3*4+2 + 0.5, ymax = 2*16+3*4+3 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 2*16+3*4+3 + 0.5, ymax = 2*16+3*4+4 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+     geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*16+0 + 0.5, ymax = 3*16+1 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*16+1 + 0.5, ymax = 3*16+2 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*16+2 + 0.5, ymax = 3*16+3 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*16+3 + 0.5, ymax = 3*16+4 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+    geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*16+2*2+0 + 0.5, ymax = 3*16+2*2+1 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*16+2*2+1 + 0.5, ymax = 3*16+2*2+2 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*16+2*2+2 + 0.5, ymax = 3*16+2*2+3 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*16+2*2+3 + 0.5, ymax = 3*16+2*2+4 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+    geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*16+2*2*2+0 + 0.5, ymax = 3*16+2*2*2+1 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*16+2*2*2+1 + 0.5, ymax = 3*16+2*2*2+2 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*16+2*2*2+2 + 0.5, ymax = 3*16+2*2*2+3 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*16+2*2*2+3 + 0.5, ymax = 3*16+2*2*2+4 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+
+    geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*16+3*4+0 + 0.5, ymax = 3*16+3*4+1 + 0.5),
+      fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*16+3*4+1 + 0.5, ymax = 3*16+3*4+2 + 0.5),
+      fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*16+3*4+2 + 0.5, ymax = 3*16+3*4+3 + 0.5),
+      fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(xmin = -5, xmax = -4.2, ymin = 3*16+3*4+3 + 0.5, ymax = 3*16+3*4+4 + 0.5),
+      fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 0 + 0.5, xmax = 1 + 0.5),
+          fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 1 + 0.5, xmax = 2 + 0.5),
+            fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2 + 0.5, xmax = 3 + 0.5),
+            fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3 + 0.5, xmax = 4 + 0.5),
+            fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*2+0 + 0.5, xmax = 2*2+1 + 0.5),
+            fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*2+1 + 0.5, xmax = 2*2+2 + 0.5),
+            fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*2+2 + 0.5, xmax = 2*2+3 + 0.5),
+            fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*2+3 + 0.5, xmax = 2*2+4 + 0.5),
+            fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*2*2+0 + 0.5, xmax = 2*2*2+1 + 0.5),
+            fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*2*2+1 + 0.5, xmax = 2*2*2+2 + 0.5),
+            fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*2*2+2 + 0.5, xmax = 2*2*2+3 + 0.5),
+            fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*2*2+3 + 0.5, xmax = 2*2*2+4 + 0.5),
+            fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*4+0 + 0.5, xmax = 3*4+1 + 0.5),
+            fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*4+1 + 0.5, xmax = 3*4+2 + 0.5),
+            fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*4+2 + 0.5, xmax = 3*4+3 + 0.5),
+            fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*4+3 + 0.5, xmax = 3*4+4 + 0.5),
+            fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 16+0 + 0.5, xmax = 16+1 + 0.5),
+            fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 16+1 + 0.5, xmax = 16+2 + 0.5),
+            fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 16+2 + 0.5, xmax = 16+3 + 0.5),
+            fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 16+3 + 0.5, xmax = 16+4 + 0.5),
+            fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 16+2*2+0 + 0.5, xmax = 16+2*2+1 + 0.5),
+            fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 16+2*2+1 + 0.5, xmax = 16+2*2+2 + 0.5),
+            fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 16+2*2+2 + 0.5, xmax = 16+2*2+3 + 0.5),
+            fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 16+2*2+3 + 0.5, xmax = 16+2*2+4 + 0.5),
+            fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 16+2*2*2+0 + 0.5, xmax = 16+2*2*2+1 + 0.5),
+            fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 16+2*2*2+1 + 0.5, xmax = 16+2*2*2+2 + 0.5),
+            fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 16+2*2*2+2 + 0.5, xmax = 16+2*2*2+3 + 0.5),
+            fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 16+2*2*2+3 + 0.5, xmax = 16+2*2*2+4 + 0.5),
+            fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 16+3*4+0 + 0.5, xmax = 16+3*4+1 + 0.5),
+            fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 16+3*4+1 + 0.5, xmax = 16+3*4+2 + 0.5),
+            fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 16+3*4+2 + 0.5, xmax = 16+3*4+3 + 0.5),
+            fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 16+3*4+3 + 0.5, xmax = 16+3*4+4 + 0.5),
+            fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*16+0 + 0.5, xmax = 2*16+1 + 0.5),
+            fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*16+1 + 0.5, xmax = 2*16+2 + 0.5),
+            fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*16+2 + 0.5, xmax = 2*16+3 + 0.5),
+            fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*16+3 + 0.5, xmax = 2*16+4 + 0.5),
+            fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*16+2*2+0 + 0.5, xmax = 2*16+2*2+1 + 0.5),
+            fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*16+2*2+1 + 0.5, xmax = 2*16+2*2+2 + 0.5),
+            fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*16+2*2+2 + 0.5, xmax = 2*16+2*2+3 + 0.5),
+            fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*16+2*2+3 + 0.5, xmax = 2*16+2*2+4 + 0.5),
+            fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*16+2*2*2+0 + 0.5, xmax = 2*16+2*2*2+1 + 0.5),
+            fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*16+2*2*2+1 + 0.5, xmax = 2*16+2*2*2+2 + 0.5),
+            fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*16+2*2*2+2 + 0.5, xmax = 2*16+2*2*2+3 + 0.5),
+            fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*16+2*2*2+3 + 0.5, xmax = 2*16+2*2*2+4 + 0.5),
+            fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*16+3*4+0 + 0.5, xmax = 2*16+3*4+1 + 0.5),
+            fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*16+3*4+1 + 0.5, xmax = 2*16+3*4+2 + 0.5),
+            fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*16+3*4+2 + 0.5, xmax = 2*16+3*4+3 + 0.5),
+            fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 2*16+3*4+3 + 0.5, xmax = 2*16+3*4+4 + 0.5),
+            fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*16+0 + 0.5, xmax = 3*16+1 + 0.5),
+            fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*16+1 + 0.5, xmax = 3*16+2 + 0.5),
+            fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*16+2 + 0.5, xmax = 3*16+3 + 0.5),
+            fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*16+3 + 0.5, xmax = 3*16+4 + 0.5),
+            fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*16+2*2+0 + 0.5, xmax = 3*16+2*2+1 + 0.5),
+            fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*16+2*2+1 + 0.5, xmax = 3*16+2*2+2 + 0.5),
+            fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*16+2*2+2 + 0.5, xmax = 3*16+2*2+3 + 0.5),
+            fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*16+2*2+3 + 0.5, xmax = 3*16+2*2+4 + 0.5),
+            fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*16+2*2*2+0 + 0.5, xmax = 3*16+2*2*2+1 + 0.5),
+            fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*16+2*2*2+1 + 0.5, xmax = 3*16+2*2*2+2 + 0.5),
+            fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*16+2*2*2+2 + 0.5, xmax = 3*16+2*2*2+3 + 0.5),
+            fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*16+2*2*2+3 + 0.5, xmax = 3*16+2*2*2+4 + 0.5),
+            fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*16+3*4+0 + 0.5, xmax = 3*16+3*4+1 + 0.5),
+            fill = "grey70", color = "grey70", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*16+3*4+1 + 0.5, xmax = 3*16+3*4+2 + 0.5),
+            fill = "grey50", color = "grey50", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*16+3*4+2 + 0.5, xmax = 3*16+3*4+3 + 0.5),
+            fill = "grey30", color = "grey30", size = 0.6) +
+  geom_rect(aes(ymin = -5, ymax = -4.2, xmin = 3*16+3*4+3 + 0.5, xmax = 3*16+3*4+4 + 0.5),
+            fill = "grey10", color = "grey10", size = 0.6) +
+  
+  geom_text(aes(x= -1, y = 7.5 + 0 + 1.0), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(x= -1, y = 16+ 7.5 + 0 + 1.0), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(x= -1, y = 16*2+ 7.5 + 0 + 1.0), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(x= -1, y = 16*3+ 7.5 + 0 + 1.0), label= 'T', family="Sans", color = "white") +
+
+  geom_text(aes(y= -1, x = 7.5 + 0 + 1.0), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(y= -1, x = 16+ 7.5 + 0 + 1.0), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(y= -1, x = 16*2+ 7.5 + 0 + 1.0), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(y= -1, x = 16*3+ 7.5 + 0 + 1.0), label= 'T', family="Sans", color = "white") +
+  
+  geom_text(aes(x= -3, y =  1.5 + 1.0), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(x= -3, y = 4 + 1.5 + 0 + 1.0), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(x= -3, y = 8 + 1.5 + 0 + 1.0), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(x= -3, y = 12 + 1.5 + 0 + 1.0), label= 'T', family="Sans", color = "white") +
+
+  geom_text(aes(x= -3, y =  16*1 + 1.5 + 1.0), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(x= -3, y = 16*1 + 4 + 1.5 + 0 + 1.0), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(x= -3, y = 16*1 +8 + 1.5 + 0 + 1.0), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(x= -3, y = 16*1 +12 + 1.5 + 0 + 1.0), label= 'T', family="Sans", color = "white") +
+  
+    geom_text(aes(x= -3, y =  16*2 +1.5 + 1.0), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(x= -3, y = 16*2 +4 + 1.5 + 0 + 1.0), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(x= -3, y = 16*2 +8 + 1.5 + 0 + 1.0), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(x= -3, y = 16*2 +12 + 1.5 + 0 + 1.0), label= 'T', family="Sans", color = "white") +
+  
+    geom_text(aes(x= -3, y =  16*3 +1.5 + 1.0), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(x= -3, y = 16*3 +4 + 1.5 + 0 + 1.0), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(x= -3, y = 16*3 +8 + 1.5 + 0 + 1.0), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(x= -3, y = 16*3 +12 + 1.5 + 0 + 1.0), label= 'T', family="Sans", color = "white") +
+  
+    geom_text(aes(y= -3, x =  1.5 + 1.0), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(y= -3, x = 4 + 1.5 + 0 + 1.0), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(y= -3, x = 8 + 1.5 + 0 + 1.0), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(y= -3, x = 12 + 1.5 + 0 + 1.0), label= 'T', family="Sans", color = "white") +
+
+  geom_text(aes(y= -3, x =  16*1 + 1.5 + 1.0), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(y= -3, x = 16*1 + 4 + 1.5 + 0 + 1.0), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(y= -3, x = 16*1 +8 + 1.5 + 0 + 1.0), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(y= -3, x = 16*1 +12 + 1.5 + 0 + 1.0), label= 'T', family="Sans", color = "white") +
+  
+    geom_text(aes(y= -3, x =  16*2 +1.5 + 1.0), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(y= -3, x = 16*2 +4 + 1.5 + 0 + 1.0), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(y= -3, x = 16*2 +8 + 1.5 + 0 + 1.0), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(y= -3, x = 16*2 +12 + 1.5 + 0 + 1.0), label= 'T', family="Sans", color = "white") +
+  
+    geom_text(aes(y= -3, x =  16*3 +1.5 + 1.0), label= 'A', family="Sans", color = "white") +
+  geom_text(aes(y= -3, x = 16*3 +4 + 1.5 + 0 + 1.0), label= 'C', family="Sans", color = "white") +
+  geom_text(aes(y= -3, x = 16*3 +8 + 1.5 + 0 + 1.0), label= 'G', family="Sans", color = "white") +
+  geom_text(aes(y= -3, x = 16*3 +12 + 1.5 + 0 + 1.0), label= 'T', family="Sans", color = "white") +
+  
+  coord_fixed() +
+  
+  xlab("Upstream sequence") +
+	ylab("Downstream sequence") +
+  theme_classic() +
+	theme(
+		legend.title = element_text(size=18),
+		legend.text = element_text(size=16),
+		legend.key.height = unit(1.5, "cm"),
+		axis.ticks.x = element_blank(),
+		axis.ticks.y = element_blank(),
+		axis.text.y = element_blank(),
+		axis.text.x = element_blank(),
+		axis.line=element_blank())
+return(p)
+}
+
+classes <- clean_three_mer$class[!duplicated(clean_three_mer$class)]
+
+for (i in classes) {
+  file_name <- paste('figures/7mer_', i, '.tiff', sep = "")
+  plot1 <- heatmap_7mer(clean_seven_mer, i)
+  ggsave(file_name, device = 'tiff', dpi = 300)
+}
+```

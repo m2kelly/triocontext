@@ -1,0 +1,25 @@
+### DOCUMENTATION FROM FRIGOLA ET AL. (2017)
+
+# This folder contains the custom scripts and dependency files to generate the exon and intron co-ordinates (hg19 version) used in our analysis.
+
+# details of the files in this folder
+# Drivers.ensg - list of cancer driver genes (obtained from intogen and cancer gene census) that needs to be excluded => RODRIGUEZ-GALINDO ET AL. (2020) IGNORES THIS FOR THE GERMLINE ANALYSIS
+# 01_3utr.regions.gz,01_5utr.regions.gz - co-ordinates of merged 3'UTR and 5'UTR obtained from oncodriveFML analysis to filter out utr regions in the exonic regions
+# hg19.genome - chromosome size file of hg19 version
+
+
+# run the below script to generate the final co-ordinates 
+./runall.sh
+
+# The following three files will be generated from the above execution
+# a) genes_exon_coords_filtered.bed.gz - this file contains the exons co-ordinates annotated with their position with respect to the TSS. The genes overlapping the list of cancer drivers, or overlapping other genes within 2kb on either sides or having less than five exons were filtered out. This file is mainly used for the analysis shown in Fig.1.
+# b) genes_middle_exon_coords.bed.gz - co-ordinates of meta exons (that are filtered for cancer driver genes)
+# c) genes_intron_coords.bed.gz - co-ordinates of meta introns (that are filtered for cancer driver genes)
+
+# The last two files were further used to apply additional filtered, such as mappability, low complexity and low sequence coverage, as mentioned in the "sequences_filtering" notebook. 
+
+
+
+#### DOCUMENTATION FROM RODRIGUEZ-GALINDO ET AL. (2020)
+
+# An extra script has been added to extract the coordinates of the Canonical coding sequences. It will generate the files 'exons_CCDS.bed.gz' and 'introns_CCDS.bed.gz' which should be moved to data/coordinates folder.
