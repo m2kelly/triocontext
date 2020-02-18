@@ -8,7 +8,7 @@ This study was conducted after Frigola et al (2017) paper "Reduced mutation rate
 We employed the code shared by Frigola et al. (2017) as a basis of our own code to ensure comparability of the main analysis. Therefore, the structure and documentation of this repository highly resembles its structure. However, it has been highly modified and brand-new code has been added as new analysis were made. 
 
 We want to thank the Barcelona biomedical genomic lab for sharing the software code, specially to the authors involved in Frigola et al (2017). Please, check Frigola et al (2017) paper's repository at https://bitbucket.org/bbglab/intron_exon_mutrate for more information.
-
+\
 
 How to use
 ----------
@@ -16,7 +16,7 @@ How to use
 The data was generated using a combination of Jupyter notebooks (using Python) and some external libraries and well as some bash and Perl scripts.
 
 All notebooks are documented, so you can check which kind of data is needed to run them (and in which folder should it be) and what is the output that is generated. 
-
+\
 
 Before using
 ------------
@@ -30,7 +30,7 @@ First of all you need to get our repository:
 or 
 
 download it from the `downloads page <https://bitbucket.org/weghornlab/germline_intron_exon_mutrate/downloads/>`_.
-
+\
 
 Directory structure
 ^^^^^^^^^^^^^^^^^^^
@@ -48,7 +48,7 @@ The **results** folder is used by the notebooks to write their output there.
 
 The **figures** folder is used by some notebooks 
 that generate plots to save the figures in there.
-
+\
 
 Installation
 ^^^^^^^^^^^^
@@ -60,7 +60,7 @@ generating the environment from the ``env.yml`` file:
 .. code:: bash
 
    conda env create -f env.yml
-
+\
 
 Workflow
 --------
