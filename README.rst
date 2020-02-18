@@ -5,18 +5,19 @@ This repository contains the code used for generating the data in the paper "Ger
 
 This study was conducted after Frigola et al (2017) paper "Reduced mutation rate in exons due to differential mismatch repair".
 
-We employed the code shared by Frigola et al. (2017) as a basis of our own code to ensure comparability of the main analysis. Therefore, the structure and documentation of this repository highly resembles its structure. However, it has been highly modified and brand-new code has been added as new analysis were made. 
+We employed the code shared by Frigola et al. (2017) as a basis of our own code to ensure comparability of the main analysis.
+Therefore, the structure and documentation of this repository highly resembles its structure. However, it has been highly modified and brand-new code has been added as new analysis were made. 
 
-We want to thank the Barcelona biomedical genomic lab for sharing the software code, specially to the authors involved in Frigola et al (2017). Please, check Frigola et al (2017) paper's repository at https://bitbucket.org/bbglab/intron_exon_mutrate for more information.
-\
+We want to thank the Barcelona biomedical genomic lab for sharing the software code, specially to the authors involved in Frigola et al (2017).
+Please, check Frigola et al (2017) paper's repository at https://bitbucket.org/bbglab/intron_exon_mutrate for more information.
+
 
 How to use
 ----------
 
-The data was generated using a combination of Jupyter notebooks (using Python) and some external libraries and well as some bash and Perl scripts.
+The data was generated using a combination of Jupyter notebooks (using Python) and some external libraries and well as some bash, R and Perl scripts.
 
 All notebooks are documented, so you can check which kind of data is needed to run them (and in which folder should it be) and what is the output that is generated. 
-\
 
 Before using
 ------------
@@ -30,7 +31,8 @@ First of all you need to get our repository:
 or 
 
 download it from the `downloads page <https://bitbucket.org/weghornlab/germline_intron_exon_mutrate/downloads/>`_.
-\
+
+At the downloads page you will also find ``data.tar.xz`` file with the preprocessed starting data for the **data** folder.
 
 Directory structure
 ^^^^^^^^^^^^^^^^^^^
@@ -48,7 +50,8 @@ The **results** folder is used by the notebooks to write their output there.
 
 The **figures** folder is used by some notebooks 
 that generate plots to save the figures in there.
-\
+
+The **other_scripts** folder contains the scripts to generate the coordinates. The results go to **data/coordinates** folder.
 
 Installation
 ^^^^^^^^^^^^
@@ -60,15 +63,24 @@ generating the environment from the ``env.yml`` file:
 .. code:: bash
 
    conda env create -f env.yml
-\
 
 Workflow
 --------
 
-1. 
+If you do not download the ``data.tar.xz``, you can generate the data through several steps:
 
-2. 
+1. Generate the coordinates with the scripts at **other_scripts** folder. The resulting files should be moved to **data/coordinates** folder. Then execute the **sequences_filtering** notebook.
 
-3. 
+2. Files at consequence folder can be generated with VEP command line tool.
 
-4. 
+3. Mappability and nucleosome files can be generated following the instructions at the ``README`` file in **data** folder.
+
+Once you have the **data** and **non_provided_data** folders prepared, there are some orders to execute notebooks:
+
+1. **Direct_signatures** and afterwards **Decomposition_signatures** before any other notebook.
+
+2. **Gene_and_sample_analysis** notebooks, before **Regression_H3K36me3_and_nucleosomes** notebook.
+
+3. **R_plots_preprocess** notebook before making R plots at the **Some_plots.Rmd** script.
+
+4. The rest of the notebooks could be executed afterwards.
