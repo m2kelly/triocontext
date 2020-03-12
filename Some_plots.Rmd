@@ -70,7 +70,7 @@ meh$freq <- apply(meh, 1, FUN = function (x) {
   as.integer(x["corrected"]) / sum(meh[meh$sample %in% x["sample"],"corrected"])
 })
 meh$se <- apply(meh, 1, FUN = function (x) {
-  sqrt(as.numeric(x["freq"])*(1-as.numeric(x["freq"]))/ sum(meh[meh$sample %in% x["sample"],"corrected"]))
+  sqrt(as.numeric(x["freq"])*(1-as.numeric(x["freq"]))/ sum(meh[meh$sample %in% x["sample"],"count"]))
 })
 ```
 
