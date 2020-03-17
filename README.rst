@@ -6,7 +6,8 @@ This repository contains the code used for generating the data in the paper "Ger
 This study was conducted after Frigola et al (2017) paper "Reduced mutation rate in exons due to differential mismatch repair".
 
 We employed the code shared by Frigola et al. (2017) as a basis of our own code to ensure comparability of the main analysis.
-Therefore, the structure and documentation of this repository highly resembles its structure. However, it has been highly modified and brand-new code has been added as new analysis were made. 
+Therefore, the structure and documentation of this repository highly resembles its structure. However, it has been highly modified and brand-new code has been added as new analysi
+es were made. 
 
 We want to thank the Barcelona biomedical genomic lab for sharing the software code, specially to the authors involved in Frigola et al (2017).
 Please, check Frigola et al (2017) paper's repository at https://bitbucket.org/bbglab/intron_exon_mutrate for more information.
@@ -22,7 +23,7 @@ All notebooks are documented, so you can check which kind of data is needed to r
 Before using
 ------------
 
-First of all you need to get our repository:
+First of all, you need to get our repository:
 
 .. code::
 
@@ -56,7 +57,7 @@ The **other_scripts** folder contains the scripts to generate the coordinates. T
 Installation
 ^^^^^^^^^^^^
 
-For the Jupyter notebooks you need to have Python plus some other the packages.
+To execute the Jupyter notebooks, you need to have Python installed, plus some additional packages.
 If you are using conda, you can use the same environment as we used by 
 generating the environment from the ``env.yml`` file:
 
