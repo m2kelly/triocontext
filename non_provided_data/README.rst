@@ -1,10 +1,9 @@
 Non provided data
 =================
 
-This folder contains data used in our analysis that is not available (de novo mutations from Goldmann et al. (2018)) or easily downloadable.
+This folder contains data used in our analysis that was not openly available at the time of the publication. Now is available at the downloads section.
 
 The sources of these data can be found the paper.
-
 
 replication_timing.txt
    File with information about the replication time. Unlike Frigola et al. (2017) We did not used this source of information in our analyses.
