@@ -43,9 +43,9 @@ The **data** and **non_provided_data** folders contains external data used in ou
 In the **data** folder there is a ``README`` file that explains
 what data is in each file and how we got it.
 
-The **non_provided_data** folder is the one in which there is mutation data
-that we are not sharing. See more information in the ``README`` file
-located in that folder.
+The **non_provided_data** folder is the one in which there is mutation data (some not publically available at the time of the manuscript).
+On this version now is available for downloading at the downloads section.
+See more information in the ``README`` file located in that folder.
 
 The **results** folder is used by the notebooks to write their output there.
 
@@ -68,7 +68,7 @@ generating the environment from the ``env.yml`` file:
 Workflow
 --------
 
-If you do not download the ``data.tar.xz``, you can generate the data through several steps:
+You should download both ``data.tar.xz`` and ``non_provided_data.tar.xz`` on the corresponding folder. If you do not want to download the ``data.tar.xz``, you can generate the data through several steps:
 
 1. Generate the coordinates with the scripts at **other_scripts** folder. The resulting files should be moved to **data/coordinates** folder. Then execute the **sequences_filtering** notebook.
 
